@@ -208,12 +208,12 @@ def get_repository_url(distribution, flocker_version):
                         archive_bucket=ARCHIVE_BUCKET,
                         key='centos',
                         ),
-        # Use CentOS packages for RHEL
-        'rhel-7.2': "https://{archive_bucket}.s3.amazonaws.com/"
-                    "{key}/clusterhq-release$(rpm -E %dist).centos."
+        # The RHEL meta-package points to the Centos-7 packages.
+        'rhel-7': "https://{archive_bucket}.s3.amazonaws.com/"
+                    "{key}/clusterhq-release$(rpm -E %dist)."
                     "noarch.rpm".format(
                         archive_bucket=ARCHIVE_BUCKET,
-                        key='centos',
+                        key='rhel',
                         ),
 
         # This could hardcode the version number instead of using
@@ -227,13 +227,6 @@ def get_repository_url(distribution, flocker_version):
         # during a subsequent apt-get update
 
         'ubuntu-14.04': 'https://{archive_bucket}.s3.amazonaws.com/{key}/'
-                        '$(lsb_release --release --short)/\\$(ARCH)'.format(
-                            archive_bucket=ARCHIVE_BUCKET,
-                            key='ubuntu' + get_package_key_suffix(
-                                flocker_version),
-                        ),
-
-        'ubuntu-15.10': 'https://{archive_bucket}.s3.amazonaws.com/{key}/'
                         '$(lsb_release --release --short)/\\$(ARCH)'.format(
                             archive_bucket=ARCHIVE_BUCKET,
                             key='ubuntu' + get_package_key_suffix(
@@ -546,8 +539,6 @@ def _get_base_url_and_installer_for_distro(distribution, build_server, branch):
     """
     package = distribution
     if is_centos_or_rhel(distribution):
-        # Use CentOS 7 packages on RHEL.
-        package = 'centos-7'
         installer = install_commands_yum
     elif is_ubuntu(distribution):
         installer = install_commands_ubuntu
@@ -558,7 +549,7 @@ def _get_base_url_and_installer_for_distro(distribution, build_server, branch):
         # A development branch has been selected - add its Buildbot repo.
         # Install CentOS packages.
         result_path = posixpath.join(
-            '/results/omnibus/', branch, package)
+            'results/omnibus/', branch, package)
         base_url = urljoin(build_server, result_path)
     else:
         base_url = None
@@ -706,6 +697,39 @@ def cli_pip_test(venv_name='flocker-client', package_source=PackageSource()):
         ])
 
 
+def task_enable_root_logins(distribution):
+    """
+    Configure the SSH server to allow root login.
+
+    Allow root SSH login by inserting PermitRootLogin as the first line so as
+    to override later lines that may set it to ``PermitRootLogin no``.
+
+    RHEL7 is the only supported distribution that disallows root logins by
+    default but we perform the re-configuration on all distributions to for
+    consistency.
+
+    Ubuntu 14.04 calls the SSH service ``ssh`` rather than ``sshd``.
+    """
+    commands = [
+        sudo_from_args([
+            'sed', '-i', '1 i PermitRootLogin yes', '/etc/ssh/sshd_config'
+        ]),
+    ]
+    if is_systemd_distribution(distribution):
+        commands.append(
+            sudo_from_args([
+                'systemctl', 'restart', 'sshd'
+            ])
+        )
+    else:
+        commands.append(
+            sudo_from_args([
+                'service', 'ssh', 'restart'
+            ])
+        )
+    return sequence(commands)
+
+
 def task_install_ssh_key():
     """
     Install the authorized ssh keys of the current user for root as well.
@@ -838,6 +862,9 @@ def task_enable_docker(distribution):
         ' --tlscert=/etc/flocker/node.crt --tlskey=/etc/flocker/node.key'
         ' -H=0.0.0.0:2376')
 
+    # Used in multiple config options
+    unixsock_opt = "-H unix:///var/run/docker.sock"
+
     if is_systemd_distribution(distribution):
         conf_path = (
             "/etc/systemd/system/docker.service.d/01-TimeoutStartSec.conf"
@@ -862,16 +889,16 @@ def task_enable_docker(distribution):
                     """\
                     [Service]
                     ExecStart=
-                    ExecStart=/usr/bin/docker daemon -H fd:// {}
-                    """.format(docker_tls_options))),
+                    ExecStart=/usr/bin/dockerd {} {}
+                    """.format(unixsock_opt, docker_tls_options))),
             run_from_args(["systemctl", "enable", "docker.service"]),
         ])
     elif is_ubuntu(distribution):
         return sequence([
             put(path="/etc/default/docker",
                 content=(
-                    'DOCKER_OPTS="-H unix:///var/run/docker.sock {}"'.format(
-                        docker_tls_options))),
+                    'DOCKER_OPTS="{} {}"'.format(
+                        unixsock_opt, docker_tls_options))),
             ])
     else:
         raise DistributionNotSupported(distribution=distribution)
@@ -1145,20 +1172,11 @@ def task_enable_flocker_agent(distribution, action="start"):
             run_from_args(['systemctl',
                            action.lower(),
                            'flocker-dataset-agent']),
-            run_from_args(['systemctl',
-                           'enable',
-                           'flocker-container-agent']),
-            run_from_args(['systemctl',
-                           action.lower(),
-                           'flocker-container-agent']),
         ])
     elif is_ubuntu(distribution):
         return sequence([
             run_from_args(['service',
                            'flocker-dataset-agent',
-                           action.lower()]),
-            run_from_args(['service',
-                           'flocker-container-agent',
                            action.lower()]),
         ])
     else:
@@ -1269,7 +1287,7 @@ def _disable_flocker_systemd():
         # XXX There should be uninstall hooks for stopping services.
         _maybe_disable(unit) for unit in [
             u"flocker-control", u"flocker-dataset-agent",
-            u"flocker-container-agent", u"flocker-docker-plugin",
+            u"flocker-docker-plugin",
         ]
     )
 
@@ -1562,8 +1580,7 @@ def configure_cluster(
     cluster, dataset_backend_configuration, provider, logging_config=None
 ):
     """
-    Configure flocker-control, flocker-dataset-agent and
-    flocker-container-agent on a collection of nodes.
+    Configure flocker-control, flocker-dataset-agent on a collection of nodes.
 
     :param Cluster cluster: Description of the cluster to configure.
 
@@ -1751,7 +1768,7 @@ def configure_node(
     logging_config=None
 ):
     """
-    Configure flocker-dataset-agent and flocker-container-agent on a node,
+    Configure flocker-dataset-agent on a node,
     so that it could join an existing Flocker cluster.
 
     :param Cluster cluster: Description of the cluster.
@@ -1854,7 +1871,12 @@ def provision_for_any_user(node, package_source, variants=()):
         address=node.address,
         commands=retry(task_install_ssh_key(), for_thirty_seconds),
     ))
-
+    # Some distributions configure SSH to prevent logging in as the root user.
+    commands.append(run_remotely(
+        username=username,
+        address=node.address,
+        commands=task_enable_root_logins(node.distribution),
+    ))
     commands.append(
         provision_as_root(node, package_source, variants))
 

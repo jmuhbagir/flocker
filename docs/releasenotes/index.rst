@@ -12,18 +12,35 @@ You can learn more about where we might be going with future releases by:
 Next Release
 ============
 
+* Ubuntu 15.10 packages are no longer generated.
+* References to the Flocker container API and the ``flocker-container-agent`` have been removed from the documentation.
+* Fixed bug in OpenStack Cinder backend where nodes with floating IPs could not be recognized.
+* The dataset agent now has backend support for :ref:`Kaminario's K2 all-flash storage array <kaminario-backend>`.
+
+Previous Releases
+=================
+
+.. contents::
+   :local:
+   :backlinks: none
+   :depth: 2
+
+v1.15.0
+-------
+* ``flocker-container-agent``, which has been deprecated since Flocker 1.10.1, no longer manipulates ``iptables`` firewall rules.
+  It will no longer create firewall rules to allow access to ports which have been exposed on Docker containers that it starts.
+  And it will no longer maintain NAT routing rules to allow access to exposed ports from other nodes in the cluster.
+
 v1.14.0
 -------
 * Flocker can now be installed on Ubuntu 16.04.
+* Flocker and the Flocker Docker Plugin are now compatible with Docker 1.12.
+  Flocker 1.14.0 has been tested with Docker 1.12.0.
+* The container API now accepts a swappiness parameter to control a container’s memory swappiness behavior.
 * **Deprecated**: The installation of Flocker client tools on Ubuntu 15.10 is deprecated.
   The Ubuntu 15.10 client installation instructions have been removed.
   The Ubuntu 15.10 packages will be removed in the next release.
 * **Deprecated**: The "Labs Installer" from the `Unofficial Flocker Tools repository <https://github.com/ClusterHQ/unofficial-flocker-tools>`_ is deprecated and the documentation for this installation mechanism has been removed.
-
-
-
-This Release
-============
 
 v1.13.0
 -------
@@ -34,14 +51,6 @@ v1.13.0
 * The dataset agent now has backend support for :ref:`CoprHD <coprhd-backend>`.
 * The ``flocker-deploy`` command line utility, which was deprecated in 1.11.0, has now been removed.
 * All the Flocker Python library requirements have been updated to the latest stable versions.
-
-Previous Releases
-=================
-
-.. contents::
-   :local:
-   :backlinks: none
-   :depth: 2
 
 v1.12.0
 -------
