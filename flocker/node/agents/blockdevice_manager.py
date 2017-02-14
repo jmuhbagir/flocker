@@ -273,11 +273,11 @@ class BlockDeviceManager(PClass):
         except CalledProcessError as e:
             raise MountError(blockdevice=blockdevice, mountpoint=mountpoint,
                              source_message=e.output)
-
-        result2 = _run_command([b"nsenter", b"--mount=/mnt/proc/1/ns/mnt", b"--", b"mount", blockdevice.path, mountpoint.path])
-        if not result2.succeeded:
+        try:
+            run_process([b"nsenter", b"--mount=/mnt/proc/1/ns/mnt", b"--", b"mount", blockdevice.path, mountpoint.path])
+        except CalledProcessError as e:
             raise MountError(blockdevice=blockdevice, mountpoint=mountpoint,
-                             source_message="Its okay error here if you not using container based "+result2.error_message)
+                             source_message="Its okay error here if you not using container based "+e.output)
 
     def unmount(self, blockdevice):
         try:
@@ -286,11 +286,11 @@ class BlockDeviceManager(PClass):
             raise UnmountError(blockdevice=blockdevice,
                                source_message=e.output)
 
-        result2 = _run_command(
-            [b"nsenter", b"--mount=/mnt/proc/1/ns/mnt", b"--", b"umount", blockdevice.path])
-        if not result2.succeeded:
+        try:
+            run_process([b"nsenter", b"--mount=/mnt/proc/1/ns/mnt", b"--", b"umount", blockdevice.path])
+        except CalledProcessError as e:
             raise UnmountError(blockdevice=blockdevice,
-                             source_message="Its okay error here if you not using container based " + result2.error_message)
+                             source_message="Its okay error here if you not using container based " +e.output)
 
     def get_mounts(self):
         mounts = psutil.disk_partitions()
